@@ -21,14 +21,19 @@ export default function SignupPage() {
   async function handleSignup(e: React.FormEvent) {
     e.preventDefault()
     setLoading(true)
-    const { error } = await supabase.auth.signUp({
+    const { data, error } = await supabase.auth.signUp({
       email,
       password,
       options: { emailRedirectTo: `${window.location.origin}/api/auth/callback` },
     })
     if (error) {
       toast.error(error.message)
+    } else if (data.session) {
+      // Email confirmation is off — user is signed in immediately.
+      router.push('/')
+      router.refresh()
     } else {
+      // Email confirmation is on — wait for the confirmation link.
       toast.success('Check your email to confirm your account!')
       router.push('/login')
     }

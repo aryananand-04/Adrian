@@ -1,8 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { Chat } from '@/types'
+import type { Chat, Personality } from '@/types'
 import { groq, MODEL } from '@/lib/groq/client'
 import { buildGoodMorningPrompt } from '@/lib/prompts'
-import { pickDefaultPersonalityObject } from '@/lib/personality'
+import { pickDefaultPersonalityObject, PERSONALITY_PRESETS } from '@/lib/personality'
 import { fetchMemories } from '@/lib/memory'
 import { getValidAccessToken } from '@/lib/google/oauth'
 import { listCalendarEvents } from '@/lib/google/api'
@@ -49,6 +49,42 @@ async function buildBriefing(supabase: SupabaseClient, userId: string): Promise<
 // Local calendar date as YYYY-MM-DD (en-CA formats that way).
 export function todayString(): string {
   return new Date().toLocaleDateString('en-CA')
+}
+
+// Ensure the user has the starting roster of characters, seeding the presets on
+// their first visit. Returns the personality list to pick from.
+async function ensurePersonalities(
+  supabase: SupabaseClient,
+  userId: string
+): Promise<Personality[]> {
+  const { data: existing } = await supabase
+    .from('personalities')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+
+  if (existing && existing.length > 0) return existing
+
+  // Upsert on (user_id, name) so two concurrent first-visit requests (e.g. a
+  // prefetch racing the real navigation) can't create duplicate characters.
+  const { error } = await supabase
+    .from('personalities')
+    .upsert(
+      PERSONALITY_PRESETS.map(p => ({ user_id: userId, ...p })),
+      { onConflict: 'user_id,name', ignoreDuplicates: true }
+    )
+  if (error) {
+    console.error('[daily] personality seeding failed:', error)
+  }
+
+  // Re-read so we return exactly one row per character regardless of races.
+  const { data: seeded } = await supabase
+    .from('personalities')
+    .select('*')
+    .eq('user_id', userId)
+    .order('created_at', { ascending: false })
+
+  return seeded ?? []
 }
 
 // Generate and store the one good-morning opener for a freshly created chat.
@@ -114,13 +150,9 @@ export async function ensureTodaysChat(
 
   if (existing) return existing
 
-  const { data: personalities } = await supabase
-    .from('personalities')
-    .select('*')
-    .eq('user_id', userId)
-    .order('created_at', { ascending: false })
+  const personalities = await ensurePersonalities(supabase, userId)
 
-  const personality = pickDefaultPersonalityObject(personalities ?? [])
+  const personality = pickDefaultPersonalityObject(personalities)
   if (!personality) return null
 
   const { data: created, error } = await supabase
