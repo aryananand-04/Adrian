@@ -12,7 +12,7 @@ export async function GET(req: Request) {
   }
 
   const state = crypto.randomUUID()
-  const res = NextResponse.redirect(buildGoogleAuthUrl(state))
+  const res = NextResponse.redirect(buildGoogleAuthUrl(state, req))
   res.cookies.set('google_oauth_state', state, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',

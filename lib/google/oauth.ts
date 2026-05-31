@@ -11,14 +11,32 @@ export const GOOGLE_SCOPES = [
   'email',
 ]
 
-export function googleRedirectUri(): string {
+/**
+ * Resolve the OAuth callback URL.
+ *
+ * Derives it from the actual incoming request (host + proto) so it is correct
+ * on localhost, Vercel previews, and production without per-env config. Falls
+ * back to GOOGLE_REDIRECT_URI, then localhost, only when no request is given.
+ * The value used here MUST be listed under "Authorized redirect URIs" in the
+ * Google Cloud Console OAuth client, and must match between the auth request
+ * and the token exchange.
+ */
+export function googleRedirectUri(req?: Request): string {
+  if (req) {
+    const host = req.headers.get('x-forwarded-host') ?? req.headers.get('host')
+    if (host) {
+      const proto =
+        req.headers.get('x-forwarded-proto') ?? (host.startsWith('localhost') ? 'http' : 'https')
+      return `${proto}://${host}/api/google/callback`
+    }
+  }
   return process.env.GOOGLE_REDIRECT_URI || 'http://localhost:3000/api/google/callback'
 }
 
-export function buildGoogleAuthUrl(state: string): string {
+export function buildGoogleAuthUrl(state: string, req?: Request): string {
   const params = new URLSearchParams({
     client_id: process.env.GOOGLE_CLIENT_ID!,
-    redirect_uri: googleRedirectUri(),
+    redirect_uri: googleRedirectUri(req),
     response_type: 'code',
     scope: GOOGLE_SCOPES.join(' '),
     access_type: 'offline', // request a refresh token
@@ -35,7 +53,7 @@ type TokenResponse = {
   scope?: string
 }
 
-export async function exchangeCodeForTokens(code: string): Promise<TokenResponse> {
+export async function exchangeCodeForTokens(code: string, req?: Request): Promise<TokenResponse> {
   const res = await fetch(GOOGLE_TOKEN_URL, {
     method: 'POST',
     headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -43,7 +61,7 @@ export async function exchangeCodeForTokens(code: string): Promise<TokenResponse
       code,
       client_id: process.env.GOOGLE_CLIENT_ID!,
       client_secret: process.env.GOOGLE_CLIENT_SECRET!,
-      redirect_uri: googleRedirectUri(),
+      redirect_uri: googleRedirectUri(req),
       grant_type: 'authorization_code',
     }),
   })
