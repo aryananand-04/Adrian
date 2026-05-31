@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react'
 import type { Personality, ChatMessage, Message } from '@/types'
+import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -48,9 +49,48 @@ export function ChatInterface({
   )
   const bottomRef = useRef<HTMLDivElement>(null)
 
+  // The good-morning opener is generated server-side and can land in the DB a
+  // moment after this page renders (or after a creation race). When we open a
+  // chat with no assistant message yet, poll briefly so the opener appears on
+  // its own — no manual refresh. We only fill an empty chat, never clobber
+  // messages the user has started sending.
+  const hasOpener = initialMessages.some(m => m.role === 'assistant')
+  const [waitingForOpener, setWaitingForOpener] = useState(!hasOpener)
+
+  useEffect(() => {
+    if (hasOpener) return
+    const supabase = createClient()
+    let attempts = 0
+    let stopped = false
+    const poll = async () => {
+      attempts++
+      const { data } = await supabase
+        .from('messages')
+        .select('role, content, created_at')
+        .eq('chat_id', chatId)
+        .order('created_at', { ascending: true })
+      if (stopped) return
+      if (data?.some(m => m.role === 'assistant')) {
+        setMessages(prev =>
+          prev.length === 0 ? data.map(m => ({ role: m.role, content: m.content })) : prev
+        )
+        setWaitingForOpener(false)
+        clearInterval(timer)
+      } else if (attempts >= 20) {
+        setWaitingForOpener(false)
+        clearInterval(timer)
+      }
+    }
+    const timer = setInterval(poll, 1500)
+    return () => {
+      stopped = true
+      clearInterval(timer)
+    }
+  }, [hasOpener, chatId])
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages, loading, pendingEmail, pendingEvent])
+  }, [messages, loading, pendingEmail, pendingEvent, waitingForOpener])
 
   async function sendMessage() {
     const content = input.trim()
@@ -163,7 +203,9 @@ export function ChatInterface({
   }
 
   const hasPersonalities = personalities.length > 0
-  const awaitingFirstToken = loading && messages[messages.length - 1]?.role === 'user'
+  const awaitingFirstToken =
+    (loading && messages[messages.length - 1]?.role === 'user') ||
+    (waitingForOpener && messages.length === 0)
 
   return (
     <div className="flex flex-col h-full">

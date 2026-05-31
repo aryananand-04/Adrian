@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -15,7 +14,6 @@ export default function LoginPage() {
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [loading, setLoading] = useState(false)
-  const router = useRouter()
   const supabase = createClient()
 
   async function handleLogin(e: React.FormEvent) {
@@ -24,11 +22,14 @@ export default function LoginPage() {
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
       toast.error(error.message)
-    } else {
-      router.push('/')
-      router.refresh()
+      setLoading(false)
+      return
     }
-    setLoading(false)
+    // Hard navigation (not router.push + refresh): one request to "/" with the
+    // fresh session cookie, so the server creates today's chat and its opener
+    // before rendering — no race that lands on an empty chat. Keep the spinner
+    // up; the page is unloading.
+    window.location.assign('/')
   }
 
   return (

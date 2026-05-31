@@ -28,16 +28,18 @@ export default function SignupPage() {
     })
     if (error) {
       toast.error(error.message)
+      setLoading(false)
     } else if (data.session) {
-      // Email confirmation is off — user is signed in immediately.
-      router.push('/')
-      router.refresh()
+      // Email confirmation is off — user is signed in immediately. Hard
+      // navigation so the server renders "/" with the fresh session cookie and
+      // creates today's chat + opener before showing it (no empty-chat race).
+      window.location.assign('/')
     } else {
       // Email confirmation is on — wait for the confirmation link.
       toast.success('Check your email to confirm your account!')
       router.push('/login')
+      setLoading(false)
     }
-    setLoading(false)
   }
 
   return (
